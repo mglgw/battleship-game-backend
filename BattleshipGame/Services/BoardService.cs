@@ -1,6 +1,7 @@
-﻿using BattleshipGame.Hubs;
-using BattleshipGame.Models;
+﻿using BattleshipGame.Models;
+
 namespace BattleshipGame.Services;
+
 public class BoardService
 {
     private readonly MemoryService _memoryService;
@@ -52,55 +53,73 @@ public class BoardService
         newBoard2Nd.GroupId = newBoard.GroupId;
         _memoryService.AddBoard(newBoard, newBoard.BoardId);
         _memoryService.AddBoard(newBoard2Nd, newBoard2Nd.BoardId);
-        return (newBoard);
+        return newBoard;
     }
-    public Board JoinToGame(int boardId)
+    public bool JoinToGame(int boardId, string connectionId)
     {
-        var board = new Board();
-        foreach (var x in _memoryService.Boards)
+        Board board;
+        if (!_memoryService.CountBoards())
         {
-            if (x.Value.BoardId == boardId)
-            {
-               board = _memoryService.GetBoard(x.Value.RivalBoardId);
-            }
+            AddMessageToPlayer("Unable to join game right now, make sure host started a game", connectionId, boardId);
+            return false;
         }
-        return board;
+        if (_memoryService.GetBoard(boardId) == null)
+        {
+            AddMessageToPlayer("Invalid game ID, try again!", connectionId, boardId);
+            return false;
+        }
+        board = _memoryService.GetBoard(boardId);
+        board = _memoryService.GetBoard(board.RivalBoardId);
+        if (board != null)
+        {
+            board.ConnectionId = connectionId;
+            return true;
+        }
+        return false;
     }
-    public void SetBoard(int boardId, int shipSize, int x, int y)
+    public void SetBoard(int boardId, int shipSize, int x, int y, int shipId)
     {
         var ship = new Ship();
         var board = _memoryService.GetBoard(boardId);
         if (board == null)
         {
-            throw new Exception("Invalid board number or board does not exist");
+            return;
         }
         ship.BoardId = board.BoardId;
-        if (!AreFieldsLegal(x, y))
+        if (!AreFieldsLegal(x, y, shipSize))
         {
-            throw new Exception("Invalid placement - outside of grid range");
+            AddMessageToPlayer("Invalid placement - outside of grid range", board.ConnectionId, board.BoardId);
+            return;
         }
-        if (!AreFieldsValid(boardId, x, y, shipSize ))
+        if (!AreFieldsValid(boardId, x, y, shipSize))
         {
-            throw new Exception(
-                "Invalid placement - other ship is placed on this coords or you're trying to place ship too close to other one");
+            AddMessageToPlayer(
+                "Invalid placement - other ship is placed on this coords or you're trying to place ship too close to other one",
+                board.ConnectionId, board.BoardId);
+            return;
         }
-        board.Ships.Add(PlaceShipOnBoard(shipSize, boardId, x, y));
+        ship = PlaceShipOnBoard(shipSize, boardId, x, y, shipId);
+        board.Ships.Add(ship);
         if (board.Ships.Count == 10)
         {
             board.IsLocked = true;
         }
     }
-    public Board HitBoard(int boardId, int x, int y)
+    public void HitBoard(int boardId, int x, int y)
     {
         var board = _memoryService.GetBoard(boardId);
         var rivalBoard = _memoryService.GetBoard(board.RivalBoardId);
+        if (board.IsReady == false || rivalBoard.IsReady == false)
+        {
+            AddMessageToPlayer("Players not ready", board.ConnectionId, board.BoardId);
+        }
         if (board.IsYourTurn == false)
         {
-            throw new Exception("Not your turn!");
+            AddMessageToPlayer("Not your turn!", board.ConnectionId, board.BoardId);
         }
         if (board == null)
         {
-            throw new Exception("Invalid board number or board does not exist");
+            return;
         }
         if (board.Cells[x][y].State == CellState.Ship)
         {
@@ -110,11 +129,10 @@ public class BoardService
         else
         {
             board.Cells[x][y].State = CellState.Missed;
+            board.IsYourTurn = false;
+            rivalBoard.IsYourTurn = true;
         }
         CheckScore(boardId);
-        board.IsYourTurn = false;
-        rivalBoard.IsYourTurn = true;
-        return board;
     }
     public Board GetBoard(int boardId)
     {
@@ -126,44 +144,49 @@ public class BoardService
         CheckIfBoardIsReady(boardId);
         var board = _memoryService.GetBoard(boardId);
         var rivalBoard = _memoryService.GetBoard(board.RivalBoardId);
-        if (board.IsHost && board.IsReady && rivalBoard.IsReady)
+        if (board.IsHost && board.IsReady)
         {
             rivalBoard.IsYourTurn = true;
         }
         return board;
-
     }
     private void CheckScore(int boardId)
     {
         var board = _memoryService.GetBoard(boardId);
         var rivalBoard = _memoryService.GetBoard(board.RivalBoardId);
-        if (board.Score == 10)
+        if (board.Score == 20)
         {
+            board.IsWinner = true;
             board.IsGameOver = true;
-        }
-        if (rivalBoard.Score== 10)
-        {
             rivalBoard.IsGameOver = true;
         }
-        
+        if (rivalBoard.Score == 20)
+        {
+            rivalBoard.IsWinner = true;
+            rivalBoard.IsGameOver = true;
+            board.IsGameOver = true;
+        }
     }
-    /*public void HitBoard(int id, int hitX, int hitY)
+    private void AddMessageToPlayer(string message, string connectionId, int boardId)
     {
-        if (id != _memoryService.GetBoard(id).Id)
-        {
-            throw new Exception("Invalid board number or board does not exist");
-        }
-        else
-        {
-            var board = _memoryService.GetBoard(id);
-            board.HitCoordsX[hitX] = hitX;
-            board.HitCoordsY[hitY] = hitY;
-        }
-    }*/
-    private bool AreFieldsLegal(int x, int y)
+        var errMess = new ErrorMessage();
+        var rnd = new Random();
+        errMess.Id = rnd.Next();
+        errMess.Message = message;
+        errMess.ConnectionId = connectionId;
+        errMess.BoardId = boardId;
+        _memoryService.AddErrMess(errMess, errMess.Id);
+    }
+    private bool AreFieldsLegal(int x, int y, int shipSize)
     {
-        if (y < 0 || y > 9) return false;
-        if (x < 0 || x > 9) return false;
+        if (y < 0 || y > 9)
+        {
+            return false;
+        }
+        if (x < 0 || x + shipSize - 1 > 9)
+        {
+            return false;
+        }
         return true;
     }
     private bool AreFieldsValid(int boardId, int x, int y, int shipSize)
@@ -171,16 +194,17 @@ public class BoardService
         var board = _memoryService.GetBoard(boardId);
         foreach (var ship in board.Ships)
         {
-            for (int i = 0; i <= shipSize-1; i++)
+            for (int i = 0; i <= shipSize - 1; i++)
             {
-                if (shipSize==1)
+                if (shipSize == 1)
                 {
                     if (board.Cells[x][y].State == CellState.Empty)
                     {
                         return true;
                     }
                 }
-                if (board.Cells[x+i][y].State == CellState.Ship || board.Cells[x+i][y].State== CellState.Taken) // checking if placement is not on another ship
+                if (board.Cells[x + i][y].State == CellState.Ship ||
+                    board.Cells[x + i][y].State == CellState.Taken) // checking if placement is not on another ship
                 {
                     return false;
                 }
@@ -188,106 +212,112 @@ public class BoardService
         }
         return true;
     }
-    private Ship PlaceShipOnBoard(int shipSize, int boardId, int x, int y)
+    private Ship PlaceShipOnBoard(int shipSize, int boardId, int x, int y, int shipId)
     {
         var board = _memoryService.GetBoard(boardId);
         var ship = new Ship();
-        ship.length = shipSize;
+        ship.Length = shipSize;
+        ship.BoardId = boardId;
         if (board.IsLocked)
         {
-            throw new Exception("Board is locked, you placed all ships");
+            AddMessageToPlayer("Board is locked, you placed all ships", board.ConnectionId, board.BoardId);
+            return null;
         }
-        if (!CheckIfShipExist(boardId,shipSize))
+        if (!CheckIfShipExist(boardId, shipSize))
         {
-            throw new Exception("Too many ships of same type");
+            AddMessageToPlayer("Too many ships of same type", board.ConnectionId, board.BoardId);
+            return null;
         }
-        if (x+shipSize-1 >9)
+        if (x + shipSize - 1 > 9)
         {
-            throw new Exception("Ship is outside of board borders");
+            AddMessageToPlayer("Ship is outside of board borders", board.ConnectionId, board.BoardId);
+            return null;
         }
-        for (int i = 0; i <= shipSize-1; i++)
+        for (int i = 0; i <= shipSize - 1; i++)
         {
-            board.Cells[x+i][y].State = CellState.Ship;
-            board.Cells[x+i][y].Battleship = ship;
-            if (y == 0 && x ==0)
+            board.Cells[x + i][y].State = CellState.Ship;
+            board.Cells[x + i][y].Battleship = ship;
+            if (y == 0 && x == 0)
             {
-                board.Cells[x+i][y+1].State = CellState.Taken;
-                board.Cells[x+i+1][y+1].State = CellState.Taken;
-                board.Cells[x+i+1][y].State = CellState.Taken;
+                board.Cells[x + i][y + 1].State = CellState.Taken;
+                board.Cells[x + i + 1][y + 1].State = CellState.Taken;
+                board.Cells[x + i + 1][y].State = CellState.Taken;
             }
-            if (y== 0 && x!=0 )
+            if (y == 0 && x != 0)
             {
-                if (x<9 && x+i <8)
+                if (x < 9 && x + i < 8)
                 {
-                    board.Cells[x+i][y+1].State = CellState.Taken;
-                    board.Cells[x+i-1][y+1].State = CellState.Taken;
-                    board.Cells[x+i+1][y+1].State = CellState.Taken;
-                    board.Cells[x-1][y].State = CellState.Taken;
-                    board.Cells[x+i+1][y].State = CellState.Taken;
+                    board.Cells[x + i][y + 1].State = CellState.Taken;
+                    board.Cells[x + i - 1][y + 1].State = CellState.Taken;
+                    board.Cells[x + i + 1][y + 1].State = CellState.Taken;
+                    board.Cells[x - 1][y].State = CellState.Taken;
+                    board.Cells[x + i + 1][y].State = CellState.Taken;
                 }
-                if (x==9||x+i==9)
+                if (x == 9 || x + i == 9)
                 {
-                    board.Cells[x-1][y].State = CellState.Taken;
-                    board.Cells[x-1][y+1].State = CellState.Taken;
-                    board.Cells[x][y+1].State = CellState.Taken;
-                    board.Cells[x+i][y+1].State = CellState.Taken;
-                }
-            }
-            if (y==9)
-            {
-                board.Cells[x+i][y-1].State = CellState.Taken;
-            }
-            if (x==0 && y!=0)
-            {
-                if (y==9)
-                {
-                    board.Cells[x+i][y-1].State = CellState.Taken;
-                    board.Cells[x+i+1][y-1].State = CellState.Taken;
-                    board.Cells[x+i+1][y].State = CellState.Taken;
-                }
-                if (y<9)
-                {
-                    board.Cells[x+i+1][y].State = CellState.Taken;
-                    board.Cells[x+i+1][y+1].State = CellState.Taken;
-                    board.Cells[x+i+1][y-1].State = CellState.Taken;
+                    board.Cells[x - 1][y].State = CellState.Taken;
+                    board.Cells[x - 1][y + 1].State = CellState.Taken;
+                    board.Cells[x][y + 1].State = CellState.Taken;
+                    board.Cells[x + i][y + 1].State = CellState.Taken;
                 }
             }
-            if (x==9&& y!=0)
+            if (y == 9)
             {
-                if (y<9)
+                board.Cells[x + i][y - 1].State = CellState.Taken;
+            }
+            if (x == 0 && y != 0)
+            {
+                if (y == 9)
                 {
-                    board.Cells[x-1][y].State = CellState.Taken;
-                    board.Cells[x-1][y+1].State = CellState.Taken;
-                    board.Cells[x-1][y-1].State = CellState.Taken;
+                    board.Cells[x + i][y - 1].State = CellState.Taken;
+                    board.Cells[x + i + 1][y - 1].State = CellState.Taken;
+                    board.Cells[x + i + 1][y].State = CellState.Taken;
                 }
-                if (y==9)
+                if (y < 9)
                 {
-                    board.Cells[x-1][y].State = CellState.Taken;
-                    board.Cells[x-1][y-1].State = CellState.Taken;
+                    board.Cells[x + i + 1][y].State = CellState.Taken;
+                    board.Cells[x + i + 1][y + 1].State = CellState.Taken;
+                    board.Cells[x + i + 1][y - 1].State = CellState.Taken;
                 }
             }
-            if (y!=0 && y<9)
+            if (x == 9 && y != 0)
             {
-                board.Cells[x+i][y+1].State = CellState.Taken;
-                board.Cells[x+i][y-1].State = CellState.Taken;
+                if (y < 9)
+                {
+                    board.Cells[x - 1][y].State = CellState.Taken;
+                    board.Cells[x - 1][y + 1].State = CellState.Taken;
+                    board.Cells[x - 1][y - 1].State = CellState.Taken;
+                }
+                if (y == 9)
+                {
+                    board.Cells[x - 1][y].State = CellState.Taken;
+                    board.Cells[x - 1][y - 1].State = CellState.Taken;
+                }
             }
-            if (x!=0 && x+i!=9 && y<9 && y!=0)
+            if (y != 0 && y < 9)
             {
-                board.Cells[x-1][y+1].State = CellState.Taken;
-                board.Cells[x-1][y-1].State = CellState.Taken;
-                board.Cells[x-1][y].State = CellState.Taken;
-                board.Cells[x+i+1][y].State = CellState.Taken;
-                board.Cells[x+i+1][y+1].State = CellState.Taken;
-                board.Cells[x+i+1][y-1].State = CellState.Taken;
+                board.Cells[x + i][y + 1].State = CellState.Taken;
+                board.Cells[x + i][y - 1].State = CellState.Taken;
             }
-            if (y==9 && x!=0&& x+i<9)
+            if (x != 0 && x + i != 9 && y < 9 && y != 0)
             {
-                board.Cells[x-1][y-1].State = CellState.Taken;
-                board.Cells[x+i+1][y].State = CellState.Taken;
-                board.Cells[x+i+1][y-1].State = CellState.Taken;
-                board.Cells[x-1][y].State = CellState.Taken;
+                board.Cells[x - 1][y + 1].State = CellState.Taken;
+                board.Cells[x - 1][y - 1].State = CellState.Taken;
+                board.Cells[x - 1][y].State = CellState.Taken;
+                board.Cells[x + i + 1][y].State = CellState.Taken;
+                board.Cells[x + i + 1][y + 1].State = CellState.Taken;
+                board.Cells[x + i + 1][y - 1].State = CellState.Taken;
+            }
+            if (y == 9 && x != 0 && x + i < 9)
+            {
+                board.Cells[x - 1][y - 1].State = CellState.Taken;
+                board.Cells[x + i + 1][y].State = CellState.Taken;
+                board.Cells[x + i + 1][y - 1].State = CellState.Taken;
+                board.Cells[x - 1][y].State = CellState.Taken;
             }
         }
+        ship.Id = shipId;
+        ship.IsSet = true;
         board.PlacedShips[shipSize] -= 1;
         board.NumberOfPlacedShips++;
         return ship;
@@ -308,9 +338,9 @@ public class BoardService
     private void CheckIfBoardIsReady(int boardId)
     {
         var board = _memoryService.GetBoard(boardId);
-        if (board.NumberOfPlacedShips < 10 )
+        if (board.NumberOfPlacedShips < 10)
         {
-            throw new Exception("Place more ships and try again!");
+            AddMessageToPlayer("Place more ships and try again!", board.ConnectionId, board.BoardId);
         }
         board.IsReady = true;
     }

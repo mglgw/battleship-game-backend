@@ -1,9 +1,10 @@
 ﻿using BattleshipGame.Models.Requests;
 using BattleshipGame.Services;
 using Microsoft.AspNetCore.Mvc;
-namespace BattleshipGame.Controllers;
-[ApiController]
 
+namespace BattleshipGame.Controllers;
+
+[ApiController]
 public class BoardController : ControllerBase
 {
     private readonly BoardService _boardService;
@@ -13,13 +14,13 @@ public class BoardController : ControllerBase
         _boardService = boardService;
     }
 
-    [ActionName("JoinGame")]
+    /*[ActionName("JoinGame")]
     [HttpPost("api/board")]
     public IActionResult JoinGame([FromBody] JoinGameRequest joinGameRequest)
     {
         var joinGame = _boardService.JoinToGame(joinGameRequest.GameId);
         return Ok (joinGame);
-    }
+    }*/
     [ActionName("Test")]
     [HttpPost("api/test")]
     public IActionResult Test()
@@ -27,7 +28,7 @@ public class BoardController : ControllerBase
         return Ok();
     }
     [ActionName("Create Board")]
-    [HttpPost ("api/boards")]
+    [HttpPost("api/boards")]
     public IActionResult CreateBoard()
     {
         var cb = _boardService.CreateBoard();
@@ -35,9 +36,10 @@ public class BoardController : ControllerBase
     }
     [ActionName("Set Board")]
     [HttpPut("api/board")]
-    public IActionResult SetBoard( [FromBody] SetBoardRequest setBoardRequest)
+    public IActionResult SetBoard([FromBody] SetBoardRequest setBoardRequest)
     {
-        _boardService.SetBoard(setBoardRequest.BoardId, setBoardRequest.ShipSize, setBoardRequest.X, setBoardRequest.Y);
+        _boardService.SetBoard(setBoardRequest.BoardId, setBoardRequest.ShipSize, setBoardRequest.X, setBoardRequest.Y,
+            setBoardRequest.ShipId);
         return Ok();
     }
     [ActionName("Get Board")]
@@ -49,7 +51,8 @@ public class BoardController : ControllerBase
     }
     [ActionName("Hit Board")]
     [HttpPut("api/boards")]
-    public IActionResult HitBoard([FromBody]  int id, int hitX, int hitY){
+    public IActionResult HitBoard([FromBody] int id, int hitX, int hitY)
+    {
         _boardService.HitBoard(id, hitX, hitY);
         return Ok();
     }

@@ -4,9 +4,9 @@ namespace BattleshipGame.Services;
 
 public class MemoryService
 {
-    public Dictionary<int, Board> Boards { get; set; } = new Dictionary<int, Board>();
-    public Dictionary<int, Ship> Ships { get; set; } = new Dictionary<int, Ship>();
-
+    public Dictionary<int, Board> Boards { get; set; } = new();
+    public Dictionary<int, Ship> Ships { get; set; } = new();
+    public Dictionary<int, ErrorMessage> ErrorMessages { get; set; } = new();
     public void AddBoard(Board board, int id)
     {
         Boards.TryAdd(id, board);
@@ -14,17 +14,24 @@ public class MemoryService
 
     public Board GetBoard(int id)
     {
-        Boards.TryGetValue(id, out Board board);
+        Boards.TryGetValue(id, out var board);
         return board;
     }
-    public void AddShip(Ship ship, int id)
+    public void AddErrMess(ErrorMessage message, int id)
     {
-        Ships.TryAdd(id, ship);
+        ErrorMessages.TryAdd(id, message);
     }
-    public Ship GetShip(int id)
+    public ErrorMessage GetMessage(int id)
     {
-        Ships.TryGetValue(id, out Ship ship);
-        return ship;
+        ErrorMessages.TryGetValue(id, out var errorMessage);
+        return errorMessage;
     }
-  
+    public bool CountBoards()
+    {
+        if (Boards.Count == 0)
+        {
+            return false;
+        }
+        return true;
+    }
 }

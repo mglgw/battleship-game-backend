@@ -2,7 +2,7 @@
 
 public enum CellState
 {
-    Empty, 
+    Empty,
     Taken,
     Ship,
     Hit,
