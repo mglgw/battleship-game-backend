@@ -2,7 +2,6 @@
 
 public class Board
 {
-
     public readonly Dictionary<int, int> PlacedShips = new()
     {
         { 1, 4 }, // ShipSize, NumberOfShipsToPlace

@@ -3,6 +3,8 @@ using BattleshipGame.Services;
 
 string myAllowSpecificOrigins = "_myAllowSpecificOrigins";
 var builder = WebApplication.CreateBuilder(args);
+
+#region Services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -19,6 +21,8 @@ builder.Services.AddCors(options =>
             policy.AllowAnyOrigin();
         });
 });
+#endregion
+
 var app = builder.Build();
 app.UseSwaggerUI(options =>
 {

@@ -1,6 +1,6 @@
 ﻿namespace BattleshipGame.Models.Requests;
 
-public class SetBoardRequest
+public class SetShipOnBoardRequest
 {
     public int BoardId { get; set; }
     public int X { get; set; }

@@ -5,15 +5,28 @@ namespace BattleshipGame.Services;
 public class BoardService
 {
     private readonly MemoryService _memoryService;
+    
     public BoardService(MemoryService memoryService)
     {
         _memoryService = memoryService;
     }
+    
     public Board CreateBoard()
     {
-        var newBoard = new Board();
-        var newBoard2Nd = new Board();
         var rnd = new Random();
+        var newBoard = new Board()
+        {
+            IsLocked = false,
+            BoardId = rnd.Next(),
+            Score = 0,
+        };
+        var newBoard2 = new Board()
+        {
+            IsLocked = false,
+            BoardId = rnd.Next() + 1,
+            Score = 0,
+        };
+        
         for (int i = 0; i < 10; i++)
         {
             var row = new List<Cell>();
@@ -27,9 +40,6 @@ public class BoardService
             }
             newBoard.Cells.Add(row);
         }
-        newBoard.IsLocked = false;
-        newBoard.BoardId = rnd.Next();
-        newBoard.Score = 0;
         for (int i = 0; i < 10; i++)
         {
             var row = new List<Cell>();
@@ -41,20 +51,18 @@ public class BoardService
                 cell.Y = j;
                 row.Add(cell);
             }
-            newBoard2Nd.Cells.Add(row);
+            newBoard2.Cells.Add(row);
         }
-        newBoard2Nd.IsLocked = false;
-        newBoard2Nd.BoardId = rnd.Next() + 1;
-        newBoard2Nd.Score = 0;
-        newBoard.RivalBoardId = newBoard2Nd.BoardId;
-        newBoard2Nd.RivalBoardId = newBoard.BoardId;
+        newBoard.RivalBoardId = newBoard2.BoardId;
+        newBoard2.RivalBoardId = newBoard.BoardId;
         newBoard.IsHost = true;
         newBoard.GroupId = newBoard.BoardId.ToString();
-        newBoard2Nd.GroupId = newBoard.GroupId;
+        newBoard2.GroupId = newBoard.GroupId;
         _memoryService.AddBoard(newBoard, newBoard.BoardId);
-        _memoryService.AddBoard(newBoard2Nd, newBoard2Nd.BoardId);
+        _memoryService.AddBoard(newBoard2, newBoard2.BoardId);
         return newBoard;
     }
+    
     public bool JoinToGame(int boardId, string connectionId)
     {
         Board board;
@@ -77,7 +85,8 @@ public class BoardService
         }
         return false;
     }
-    public void SetBoard(int boardId, int shipSize, int x, int y, int shipId)
+    
+    public void SetShipOnBoard(int boardId, int shipSize, int x, int y, int shipId)
     {
         var ship = new Ship();
         var board = _memoryService.GetBoard(boardId);
@@ -105,6 +114,7 @@ public class BoardService
             board.IsLocked = true;
         }
     }
+    
     public void HitBoard(int boardId, int x, int y)
     {
         var board = _memoryService.GetBoard(boardId);
@@ -112,10 +122,12 @@ public class BoardService
         if (board.IsReady == false || rivalBoard.IsReady == false)
         {
             AddMessageToPlayer("Players not ready", board.ConnectionId, board.BoardId);
+            return;
         }
         if (board.IsYourTurn == false)
         {
             AddMessageToPlayer("Not your turn!", board.ConnectionId, board.BoardId);
+            return;
         }
         if (board == null)
         {
@@ -134,12 +146,14 @@ public class BoardService
         }
         CheckScore(boardId);
     }
-    public Board GetBoard(int boardId)
+    
+    public Board? GetBoard(int boardId)
     {
         var board = _memoryService.GetBoard(boardId);
         return board;
     }
-    public Board StartDuel(int boardId)
+    
+    public Board StartGame(int boardId)
     {
         CheckIfBoardIsReady(boardId);
         var board = _memoryService.GetBoard(boardId);
@@ -150,6 +164,7 @@ public class BoardService
         }
         return board;
     }
+    
     private void CheckScore(int boardId)
     {
         var board = _memoryService.GetBoard(boardId);
@@ -167,16 +182,20 @@ public class BoardService
             board.IsGameOver = true;
         }
     }
+    
     private void AddMessageToPlayer(string message, string connectionId, int boardId)
     {
-        var errMess = new ErrorMessage();
         var rnd = new Random();
-        errMess.Id = rnd.Next();
-        errMess.Message = message;
-        errMess.ConnectionId = connectionId;
-        errMess.BoardId = boardId;
+        var errMess = new ErrorMessage
+        {
+            ConnectionId = connectionId,
+            Id = rnd.Next(),
+            Message = message,
+            BoardId = boardId,
+        };
         _memoryService.AddErrMess(errMess, errMess.Id);
     }
+    
     private bool AreFieldsLegal(int x, int y, int shipSize)
     {
         if (y < 0 || y > 9)
@@ -189,6 +208,7 @@ public class BoardService
         }
         return true;
     }
+    
     private bool AreFieldsValid(int boardId, int x, int y, int shipSize)
     {
         var board = _memoryService.GetBoard(boardId);
@@ -212,6 +232,7 @@ public class BoardService
         }
         return true;
     }
+    
     private Ship PlaceShipOnBoard(int shipSize, int boardId, int x, int y, int shipId)
     {
         var board = _memoryService.GetBoard(boardId);
@@ -322,6 +343,7 @@ public class BoardService
         board.NumberOfPlacedShips++;
         return ship;
     }
+    
     private bool CheckIfShipExist(int boardId, int shipSize)
     {
         var board = _memoryService.GetBoard(boardId);
@@ -335,6 +357,7 @@ public class BoardService
         }
         return true;
     }
+    
     private void CheckIfBoardIsReady(int boardId)
     {
         var board = _memoryService.GetBoard(boardId);
