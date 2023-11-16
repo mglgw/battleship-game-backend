@@ -35,6 +35,6 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 app.UseCors(myAllowSpecificOrigins);
-app.MapHub<BoardHub>("/board");
+app.MapHub<GameHub>("/game");
 app.MapControllers();
 app.Run();

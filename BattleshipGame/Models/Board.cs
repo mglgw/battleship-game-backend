@@ -2,7 +2,7 @@
 
 public class Board
 {
-    public readonly Dictionary<int, int> PlacedShips = new()
+    public readonly Dictionary<int, int> ShipPool = new()
     {
         { 1, 4 }, // ShipSize, NumberOfShipsToPlace
         { 2, 3 },
@@ -10,18 +10,36 @@ public class Board
         { 4, 1 }
     };
     
+    public int Id { get; set; }
     public List<List<Cell>> Cells { get; set; } = new();
     public List<Ship> Ships { get; set; } = new();
-    public int NumberOfPlacedShips { get; set; }
-    public bool IsHost { get; set; } 
-    public bool IsReady { get; set; } 
-    public bool IsYourTurn { get; set; } 
-    public bool IsLocked { get; set; }
-    public bool IsWinner { get; set; }
-    public bool IsGameOver { get; set; }
-    public int Score { get; set; }
-    public int BoardId { get; set; }
-    public int RivalBoardId { get; set; }
+    public bool IsReady => Ships.Count >= 10;
     public string GroupId { get; set; } = "empty";
-    public string ConnectionId { get; set; } = "empty";
+    public void FillWithEmptyCells()
+    {
+        for (int i = 0; i < 10; i++)
+        {
+            var row = new List<Cell>();
+            for (int j = 0; j < 10; j++)
+            {
+                var cell = new Cell();
+                cell.State = CellState.Empty;
+                cell.X = i;
+                cell.Y = j;
+                row.Add(cell);
+            }
+            Cells.Add(row);
+        }
+    }
+    public void ChangeCellState(CellState cellState, int x, int y)
+    {
+        switch (cellState)
+        {
+            case CellState.Taken:
+            {
+                Cells[x][y].State = CellState.Taken;
+                break;
+            }
+        }
+    }
 }
