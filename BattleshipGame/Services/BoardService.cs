@@ -1,236 +1,160 @@
-﻿using BattleshipGame.Models;
+﻿using BattleshipGame.Hubs;
+using BattleshipGame.Models;
+using BattleshipGame.Models.ViewModels;
+using Microsoft.AspNetCore.SignalR;
 
 namespace BattleshipGame.Services;
 
 public class BoardService
 {
     private readonly MemoryService _memoryService;
-    public BoardService(MemoryService memoryService)
+    private readonly IHubContext<GameHub, IGameHub> _gameHubContext;
+    
+    public BoardService(MemoryService memoryService, IHubContext<GameHub, IGameHub> gameHubContext)
     {
         _memoryService = memoryService;
+        _gameHubContext = gameHubContext;
     }
+    
     public Board CreateBoard()
     {
-        var newBoard = new Board();
-        var newBoard2Nd = new Board();
         var rnd = new Random();
-        for (int i = 0; i < 10; i++)
+        var newBoard = new Board()
         {
-            var row = new List<Cell>();
-            for (int j = 0; j < 10; j++)
-            {
-                var cell = new Cell();
-                cell.State = CellState.Empty;
-                cell.X = i;
-                cell.Y = j;
-                row.Add(cell);
-            }
-            newBoard.Cells.Add(row);
-        }
-        newBoard.IsLocked = false;
-        newBoard.BoardId = rnd.Next();
-        newBoard.Score = 0;
-        for (int i = 0; i < 10; i++)
+            Id = rnd.Next(),
+        };
+        var newBoard2 = new Board()
         {
-            var row = new List<Cell>();
-            for (int j = 0; j < 10; j++)
-            {
-                var cell = new Cell();
-                cell.State = CellState.Empty;
-                cell.X = i;
-                cell.Y = j;
-                row.Add(cell);
-            }
-            newBoard2Nd.Cells.Add(row);
-        }
-        newBoard2Nd.IsLocked = false;
-        newBoard2Nd.BoardId = rnd.Next() + 1;
-        newBoard2Nd.Score = 0;
-        newBoard.RivalBoardId = newBoard2Nd.BoardId;
-        newBoard2Nd.RivalBoardId = newBoard.BoardId;
-        newBoard.IsHost = true;
-        newBoard.GroupId = newBoard.BoardId.ToString();
-        newBoard2Nd.GroupId = newBoard.GroupId;
-        _memoryService.AddBoard(newBoard, newBoard.BoardId);
-        _memoryService.AddBoard(newBoard2Nd, newBoard2Nd.BoardId);
+            Id = rnd.Next() + 1,
+        };
+        newBoard.FillWithEmptyCells();
+        newBoard2.FillWithEmptyCells();
+        newBoard.GroupId = newBoard.Id.ToString();
+        newBoard2.GroupId = newBoard.GroupId;
+        _memoryService.AddBoard(newBoard, newBoard.Id);
+        _memoryService.AddBoard(newBoard2, newBoard2.Id);
         return newBoard;
     }
-    public bool JoinToGame(int boardId, string connectionId)
+    
+    public void SetShipOnBoard(string connectionId, int shipSize, int x, int y, int shipId)
     {
-        Board board;
-        if (!_memoryService.CountBoards())
+        if (_memoryService.Players.TryGetValue(connectionId, out var player))
         {
-            AddMessageToPlayer("Unable to join game right now, make sure host started a game", connectionId, boardId);
-            return false;
-        }
-        if (_memoryService.GetBoard(boardId) == null)
-        {
-            AddMessageToPlayer("Invalid game ID, try again!", connectionId, boardId);
-            return false;
-        }
-        board = _memoryService.GetBoard(boardId);
-        board = _memoryService.GetBoard(board.RivalBoardId);
-        if (board != null)
-        {
-            board.ConnectionId = connectionId;
-            return true;
-        }
-        return false;
-    }
-    public void SetBoard(int boardId, int shipSize, int x, int y, int shipId)
-    {
-        var ship = new Ship();
-        var board = _memoryService.GetBoard(boardId);
-        if (board == null)
-        {
-            return;
-        }
-        ship.BoardId = board.BoardId;
-        if (!AreFieldsLegal(x, y, shipSize))
-        {
-            AddMessageToPlayer("Invalid placement - outside of grid range", board.ConnectionId, board.BoardId);
-            return;
-        }
-        if (!AreFieldsValid(boardId, x, y, shipSize))
-        {
-            AddMessageToPlayer(
-                "Invalid placement - other ship is placed on this coords or you're trying to place ship too close to other one",
-                board.ConnectionId, board.BoardId);
-            return;
-        }
-        ship = PlaceShipOnBoard(shipSize, boardId, x, y, shipId);
-        board.Ships.Add(ship);
-        if (board.Ships.Count == 10)
-        {
-            board.IsLocked = true;
+            if (!AreFieldsLegal(x, y, shipSize))
+            {
+                _gameHubContext.Clients.Client(connectionId).SendError("Invalid placement - outside of grid range");
+                return;
+            }
+            if (!AreFieldsValid(player.Board, x, y, shipSize))
+            { 
+                _gameHubContext.Clients.Client(connectionId).SendError("Invalid placement - other ship is placed on this coords or you're trying to place ship too close to other one");
+                return;
+            }
+            var ship = PlaceShipOnBoard(shipSize, player.Board, x, y, shipId, player.ConnectionId);
+            player.Board.Ships.Add(ship);
+            _gameHubContext.Clients.Client(connectionId).UpdatePlayerBoardAfterMove(player.Board);
+            NotifyOnChange(player.Game);
         }
     }
-    public void HitBoard(int boardId, int x, int y)
+    
+    public void HitBoard(string connectionId, int x, int y)
     {
-        var board = _memoryService.GetBoard(boardId);
-        var rivalBoard = _memoryService.GetBoard(board.RivalBoardId);
-        if (board.IsReady == false || rivalBoard.IsReady == false)
+        if (_memoryService.Players.TryGetValue(connectionId, out var player))
         {
-            AddMessageToPlayer("Players not ready", board.ConnectionId, board.BoardId);
+            if (player.Id == player.Game.Host.Id)
+            {
+                CheckHit(player.Game.Guest,x,y);
+            }
+            else
+            {
+                CheckHit(player.Game.Host, x,y );
+            }
         }
-        if (board.IsYourTurn == false)
+    }
+    
+    private void CheckHit(Player player, int x, int y)
+    {
+        var hitInfo = new HitInfoViewModel()
         {
-            AddMessageToPlayer("Not your turn!", board.ConnectionId, board.BoardId);
-        }
-        if (board == null)
+            PlayerId = player.Id,
+            CellState = CellState.Empty,
+            y = y,
+            x = x
+        };
+        if (player.Board.Cells[x][y].State == CellState.Ship)
         {
-            return;
-        }
-        if (board.Cells[x][y].State == CellState.Ship)
-        {
-            board.Cells[x][y].State = CellState.Hit;
-            rivalBoard.Score++;
+            player.Board.Cells[x][y].State = CellState.Hit;
+            hitInfo.CellState = CellState.Hit;
+            if (player.Id == player.Game.Host.Id)
+            {
+                player.Game.GuestScore++;
+                _gameHubContext.Clients.Client(player.Game.Guest.ConnectionId).SendScore(player.Game.GuestScore);
+                CheckScore(player.Game);
+            }
+            else
+            {
+                player.Game.HostScore++;
+                _gameHubContext.Clients.Client(player.Game.Host.ConnectionId).SendScore(player.Game.HostScore);
+                CheckScore(player.Game);
+            }
+            
         }
         else
         {
-            board.Cells[x][y].State = CellState.Missed;
-            board.IsYourTurn = false;
-            rivalBoard.IsYourTurn = true;
-        }
-        CheckScore(boardId);
-    }
-    public Board GetBoard(int boardId)
-    {
-        var board = _memoryService.GetBoard(boardId);
-        return board;
-    }
-    public Board StartDuel(int boardId)
-    {
-        CheckIfBoardIsReady(boardId);
-        var board = _memoryService.GetBoard(boardId);
-        var rivalBoard = _memoryService.GetBoard(board.RivalBoardId);
-        if (board.IsHost && board.IsReady)
-        {
-            rivalBoard.IsYourTurn = true;
-        }
-        return board;
-    }
-    private void CheckScore(int boardId)
-    {
-        var board = _memoryService.GetBoard(boardId);
-        var rivalBoard = _memoryService.GetBoard(board.RivalBoardId);
-        if (board.Score == 20)
-        {
-            board.IsWinner = true;
-            board.IsGameOver = true;
-            rivalBoard.IsGameOver = true;
-        }
-        if (rivalBoard.Score == 20)
-        {
-            rivalBoard.IsWinner = true;
-            rivalBoard.IsGameOver = true;
-            board.IsGameOver = true;
-        }
-    }
-    private void AddMessageToPlayer(string message, string connectionId, int boardId)
-    {
-        var errMess = new ErrorMessage();
-        var rnd = new Random();
-        errMess.Id = rnd.Next();
-        errMess.Message = message;
-        errMess.ConnectionId = connectionId;
-        errMess.BoardId = boardId;
-        _memoryService.AddErrMess(errMess, errMess.Id);
-    }
-    private bool AreFieldsLegal(int x, int y, int shipSize)
-    {
-        if (y < 0 || y > 9)
-        {
-            return false;
-        }
-        if (x < 0 || x + shipSize - 1 > 9)
-        {
-            return false;
-        }
-        return true;
-    }
-    private bool AreFieldsValid(int boardId, int x, int y, int shipSize)
-    {
-        var board = _memoryService.GetBoard(boardId);
-        foreach (var ship in board.Ships)
-        {
-            for (int i = 0; i <= shipSize - 1; i++)
+            player.Board.Cells[x][y].State = CellState.Missed;
+            hitInfo.CellState = CellState.Missed;
+            
+            if (player.Game.CurrentTurnPlayerId == player.Game.Host.Id)
             {
-                if (shipSize == 1)
-                {
-                    if (board.Cells[x][y].State == CellState.Empty)
-                    {
-                        return true;
-                    }
-                }
-                if (board.Cells[x + i][y].State == CellState.Ship ||
-                    board.Cells[x + i][y].State == CellState.Taken) // checking if placement is not on another ship
-                {
-                    return false;
-                }
+                player.Game.CurrentTurnPlayerId = player.Game.Guest.Id;
+            }
+            else
+            {
+                player.Game.CurrentTurnPlayerId = player.Game.Host.Id;
             }
         }
-        return true;
+        _gameHubContext.Clients.Group(player.Game.Id.ToString()).SendHitInfo(hitInfo);
+        NotifyOnChange(player.Game);
     }
-    private Ship PlaceShipOnBoard(int shipSize, int boardId, int x, int y, int shipId)
+
+    private void CheckScore(Game game)
     {
-        var board = _memoryService.GetBoard(boardId);
+        if (game.HostScore == 20)
+        {
+            game.Winners.Add(game.Host.Id);
+            game.GameOver = true;
+            NotifyOnChange(game);
+        }
+        if (game.GuestScore == 20)
+        {
+            game.GameOver = true;
+            game.Winners.Add(game.Guest.Id);
+            NotifyOnChange(game);
+            
+        }
+    }
+    
+    private Ship PlaceShipOnBoard(int shipSize, Board board, int x, int y, int shipId, string connectionId)
+    {
         var ship = new Ship();
         ship.Length = shipSize;
-        ship.BoardId = boardId;
-        if (board.IsLocked)
+        ship.BoardId = board.Id;
+        ship.X = x;
+        ship.Y = y;
+        if (board.IsReady)
         {
-            AddMessageToPlayer("Board is locked, you placed all ships", board.ConnectionId, board.BoardId);
+            _gameHubContext.Clients.Client(connectionId).SendError("Board is locked, you placed all ships");
+            
             return null;
         }
-        if (!CheckIfShipExist(boardId, shipSize))
+        if (!CheckIfShipExist(board, shipSize))
         {
-            AddMessageToPlayer("Too many ships of same type", board.ConnectionId, board.BoardId);
+            _gameHubContext.Clients.Client(connectionId).SendError("Too many ships of same type");
             return null;
         }
         if (x + shipSize - 1 > 9)
         {
-            AddMessageToPlayer("Ship is outside of board borders", board.ConnectionId, board.BoardId);
+            _gameHubContext.Clients.Client(connectionId).SendError("Ship is outside of board borders");
             return null;
         }
         for (int i = 0; i <= shipSize - 1; i++)
@@ -318,30 +242,66 @@ public class BoardService
         }
         ship.Id = shipId;
         ship.IsSet = true;
-        board.PlacedShips[shipSize] -= 1;
-        board.NumberOfPlacedShips++;
+        board.ShipPool[shipSize] -= 1;
         return ship;
     }
-    private bool CheckIfShipExist(int boardId, int shipSize)
+    
+    private bool AreFieldsLegal(int x, int y, int shipSize)
     {
-        var board = _memoryService.GetBoard(boardId);
-        if (shipSize is 0 or > 4)
+        if (y < 0 || y > 9)
         {
             return false;
         }
-        if (board.PlacedShips[shipSize] <= 0)
+        if (x < 0 || x + shipSize - 1 > 9)
         {
             return false;
         }
         return true;
     }
-    private void CheckIfBoardIsReady(int boardId)
+    
+    private bool AreFieldsValid(Board board, int x, int y, int shipSize)
     {
-        var board = _memoryService.GetBoard(boardId);
-        if (board.NumberOfPlacedShips < 10)
+        foreach (var ship in board.Ships)
         {
-            AddMessageToPlayer("Place more ships and try again!", board.ConnectionId, board.BoardId);
+            for (int i = 0; i <= shipSize - 1; i++)
+            {
+                if (shipSize == 1)
+                {
+                    if (board.Cells[x][y].State == CellState.Empty)
+                    {
+                        return true;
+                    }
+                }
+                if (board.Cells[x + i][y].State == CellState.Ship ||
+                    board.Cells[x + i][y].State == CellState.Taken) // checking if placement is not on another ship
+                {
+                    return false;
+                }
+            }
         }
-        board.IsReady = true;
+        return true;
     }
+    
+    private bool CheckIfShipExist(Board board, int shipSize)
+    {
+        if (shipSize is 0 or > 4)
+        {
+            return false;
+        }
+        if (board.ShipPool[shipSize] <= 0)
+        {
+            return false;
+        }
+        return true;
+    }
+    
+    public void NotifyOnChange(Game game)
+    {
+        if ( game.Ready)
+        {
+            _gameHubContext.Clients.Group(game.Id.ToString()).SendGameInfo((GameViewModel)game);
+            
+        }
+    }
+    
 }
