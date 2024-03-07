@@ -78,6 +78,6 @@ public class GameHub : Hub<IGameHub>
     }
     public async Task HitBoard(int x, int y)
     {
-       _boardService.HitBoard(Context.ConnectionId, x, y);
+       _boardService.HitBoard(Context.ConnectionId, x, y); 
     }
 }
